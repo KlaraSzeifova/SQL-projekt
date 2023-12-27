@@ -1,0 +1,83 @@
+create table t_klara_szeifova_project_SQL_primary_final
+    (id INT NOT NULL AUTO_INCREMENT,
+     PRIMARY KEY (id), index idx_rok(rok), index idx_typ(typ), index idx_kod(kod), index idx_kod_typ(kod, typ)) engine = innodb
+select payroll_year as rok, round(avg(value), 0) as hodnota, cpib.name as nazev, cpib.code as kod, 'PAYROLL' as typ
+from czechia_payroll
+         join czechia_payroll_calculation cpc on cpc.code = czechia_payroll.calculation_code
+         join czechia_payroll_unit c on czechia_payroll.unit_code = c.code
+         join czechia_payroll_value_type cpvt on czechia_payroll.value_type_code = cpvt.code
+         join czechia_payroll_industry_branch cpib on czechia_payroll.industry_branch_code = cpib.code
+where cpvt.code = 5958
+group by czechia_payroll.payroll_year, cpib.code
+union all -- spojit do jedne tabulky
+select year(date_from), round(avg(value), 2) as prumerna_cena, cpc.name, cpc.code as kod, 'PRICE'
+from czechia_price join data_academy_absolvent.czechia_price_category cpc on czechia_price.category_code = cpc.code
+group by year(date_from), category_code;
+
+
+-- Rostou v průběhu let mzdy ve všech odvětvích, nebo v některých klesají?
+
+select rok, nazev, hodnota, hodnota - lag(hodnota, 1)
+over (order by kod,rok)as rozdil
+from t_klara_szeifova_project_SQL_primary_final
+where typ = 'PAYROLL' group by kod, rok order by kod, rok;
+
+--Velký propad je vidět ve všech odvětvích v roce 2000. V ostatních letech dochází převážně k růstu ve všech odvětcích. 
+
+-- Kolik je možné si koupit litrů mléka a kilogramů chleba za první a poslední srovnatelné období v dostupných datech cen a mezd?
+
+select distinct kod, nazev from t_klara_szeifova_project_SQL_primary_final where typ = 'PRICE' group by kod ;
+select subquery_min.min_rok, prumerna_min_rok / min_rok_chleba as chleba_kg_min,
+       max_rok, prumerna_max_rok / max_rok_chleba as chleba_kg_max 
+    from (select min(rok) min_rok, hodnota as min_rok_chleba
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE' and kod = 111301) as subquery_min,(select max(rok) max_rok, hodnota max_rok_chleba
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE' and kod = 111301) as subquery_max,(select rok min_rok_prumer, avg(hodnota) as prumerna_min_rok
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PAYROLL'and rok = (select min(rok)
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE'and kod = 111301)) as subquery_payroll_min,
+   (select rok max_rok_prumer, avg(hodnota) as prumerna_max_rok
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PAYROLL'and rok = (select max(rok)
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE'and kod = 111301)) as subquery_payroll_max;
+   
+--V roce 2006 si bylo možné za průměrnou mzdu koupit 1,2kg chleba. V roce 2018 si bylo možné při průměrné mzdě koupit 2kg chleba.
+
+select subquery_min.min_rok, prumerna_min_rok / min_rok_mleko as mleko_l_min,
+       max_rok, prumerna_max_rok / max_rok_mleko as mleko_l_max 
+    from (select min(rok) min_rok, hodnota as min_rok_mleko
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE' and kod = 114201) as subquery_min,(select max(rok) max_rok, hodnota max_rok_mleko
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE' and kod = 114201) as subquery_max,(select rok min_rok_prumer, avg(hodnota) as prumerna_min_rok
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PAYROLL'and rok = (select min(rok)
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE'and kod = 114201)) as subquery_payroll_min,
+   (select rok max_rok_prumer, avg(hodnota) as prumerna_max_rok
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PAYROLL'and rok = (select max(rok)
+    from t_klara_szeifova_project_SQL_primary_final
+    where typ = 'PRICE'and kod = 114201)) as subquery_payroll_max; 
+   
+--V roce 2006 si bylo možné za průměrnou mzdu koupit 1,4l mléka. V roce 2018 si bylo možné při průměrné mzdě koupit 2,2l mléka.
+-- Kupní síla průměrné mzdy v letech vzrostla.
+
+-- Existuje rok, ve kterém byl meziroční nárůst cen potravin výrazně vyšší než růst mezd (větší než 10 %)?
+select
+    rok,
+    typ,
+    avg(hodnota),
+    lag(avg(hodnota)) over (partition by typ order by rok) as predchozi_hodnota,
+    case
+    when lag(avg(hodnota)) over (partition by typ order by rok) is not null
+    then ((avg(hodnota) - lag(avg(hodnota)) over (partition by typ order by rok)) / lag(avg(hodnota)) over(partition by typ order by rok)) * 100
+        ELSE NULL
+    end as zmena_procent
+    from t_klara_szeifova_project_SQL_primary_final 
+    group by rok, typ 
+    order by typ, rok;
+
