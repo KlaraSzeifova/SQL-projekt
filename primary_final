@@ -83,4 +83,22 @@ select
  --V roce 2017 byl nárůst cen o 9.6% zatím co nárůst průměrných mezd 6.2%, jedná se o hodnoty pod sledovaným minimem 10%.
  --V ostatních letech nebyl nárůst cen potravin výrazně vyšší než růst mezd. 
 
+ -- Která kategorie potravin zdražuje nejpomaleji (je u ní nejnižší percentuální meziroční nárůst)?
+
+ select
+    rok,
+    typ,
+    nazev,
+    avg(hodnota),
+    lag(avg(hodnota)) over (partition by nazev order by rok) as predchozi_hodnota,
+    case
+    when lag(avg(hodnota)) over (partition by nazev order by rok) is not null
+    then ((avg(hodnota) - lag(avg(hodnota)) over (partition by nazev order by rok)) / lag(avg(hodnota)) over(partition by nazev order by rok)) * 100
+        ELSE NULL
+    end as zmena_procent
+    from t_klara_szeifova_project_SQL_primary_final 
+    where typ = 'PRICE'
+    group by rok, nazev 
+    order by nazev, rok;
+
 
